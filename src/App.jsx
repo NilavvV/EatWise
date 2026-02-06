@@ -1,11 +1,30 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Camera, Upload, ChefHat, Activity, Info, X, Loader2, Sparkles, Leaf, PieChart, AlertCircle, ShieldCheck, AlertTriangle, Scale, EyeOff, Heart } from 'lucide-react';
+import { Camera, Upload, ChefHat, Activity, Info, X, Loader2, Sparkles, Leaf, PieChart, AlertCircle, ShieldCheck, AlertTriangle, Scale, EyeOff, Heart, Settings, Key } from 'lucide-react';
 
-// API//
-const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
+// --- API CONFIGURATION ---
+// Helper to get the API Key: Checks Local Storage first (User Key), then falls back to Env Var (Your Key)
+const getApiKey = () => {
+  const userKey = localStorage.getItem('EATWISE_USER_API_KEY');
+  
+  // Safe access for Vite environment variables to prevent runtime crashes in non-Vite environments
+  // We use a try-catch and existence check because 'import.meta' can be problematic in some build steps
+  let envKey = '';
+  try {
+    if (import.meta && import.meta.env) {
+      envKey = import.meta.env.VITE_GEMINI_API_KEY;
+    }
+  } catch (e) {
+    // Environment variable access failed, relying on user key
+    console.warn('Env access skipped');
+  }
+
+  return userKey || envKey;
+};
+
 const fetchWithRetry = async (url, options, retries = 5, backoff = 1000) => {
   try {
     const response = await fetch(url, options);
+    // 429 = Too Many Requests (Quota Exceeded)
     if ((response.status === 429 || response.status >= 500) && retries > 0) {
       await new Promise(resolve => setTimeout(resolve, backoff));
       return fetchWithRetry(url, options, retries - 1, backoff * 2);
@@ -24,6 +43,12 @@ const fetchWithRetry = async (url, options, retries = 5, backoff = 1000) => {
  * Food Analysis Logic - "Co-Pilot" Vision
  */
 const analyzeFoodImage = async (base64Image, userMessage) => {
+  const currentApiKey = getApiKey();
+  
+  if (!currentApiKey) {
+    return { error: "Missing API Key. Please add one in settings or configure the .env file." };
+  }
+
   const prompt = `
     You are a world-class AI food safety expert, nutritionist, and public health inspector.
     
@@ -65,7 +90,7 @@ const analyzeFoodImage = async (base64Image, userMessage) => {
 
   try {
     const response = await fetchWithRetry(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${API_KEY}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${currentApiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -96,7 +121,9 @@ const analyzeFoodImage = async (base64Image, userMessage) => {
 };
 
 const generateRecipe = async (dishName) => {
-  //  Explicitly asking for 'title' and 'steps' array
+  const currentApiKey = getApiKey();
+  if (!currentApiKey) return { title: "Error", steps: ["API Key missing."] };
+
   const prompt = `
     Create a healthy recipe for "${dishName}".
     
@@ -115,7 +142,7 @@ const generateRecipe = async (dishName) => {
   
   try {
     const response = await fetchWithRetry(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${API_KEY}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${currentApiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -129,13 +156,11 @@ const generateRecipe = async (dishName) => {
     }
 
     let text = data.candidates[0].content.parts[0].text;
-    // Clean up potential markdown code blocks
     text = text.replace(/```json/g, '').replace(/```/g, '').trim();
     
     return JSON.parse(text);
   } catch (error) { 
     console.error("Recipe Error:", error);
-    // Return a fallback structure so the UI doesn't crash
     return { 
       title: "Recipe Unavailable", 
       steps: ["Sorry, we couldn't generate a recipe for this item right now."] 
@@ -144,6 +169,81 @@ const generateRecipe = async (dishName) => {
 };
 
 // --- COMPONENTS ---
+
+const ApiKeyManager = () => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [key, setKey] = useState(localStorage.getItem('EATWISE_USER_API_KEY') || '');
+  const [status, setStatus] = useState('');
+
+  const saveKey = () => {
+    if (!key.trim()) return;
+    localStorage.setItem('EATWISE_USER_API_KEY', key.trim());
+    setStatus('Saved!');
+    setTimeout(() => {
+      setStatus('');
+      setIsOpen(false);
+      window.location.reload(); // Reload to ensure fresh state
+    }, 1000);
+  };
+
+  const clearKey = () => {
+    localStorage.removeItem('EATWISE_USER_API_KEY');
+    setKey('');
+    setStatus('Reset!');
+    setTimeout(() => {
+      setStatus('');
+      window.location.reload();
+    }, 1000);
+  };
+
+  if (!isOpen) {
+    return (
+      <button 
+        onClick={() => setIsOpen(true)}
+        className="mt-8 mb-4 mx-auto flex items-center gap-2 text-[10px] text-slate-400 font-bold uppercase tracking-widest hover:text-emerald-500 transition-colors"
+      >
+        <Settings size={12} /> Configure API Key
+      </button>
+    );
+  }
+
+  return (
+    <div className="mt-6 mb-4 p-4 bg-slate-50 border border-slate-200 rounded-2xl w-full">
+      <div className="flex justify-between items-center mb-3">
+        <h4 className="text-xs font-black uppercase text-slate-700 flex items-center gap-2">
+          <Key size={14} className="text-emerald-500" /> Custom API Key
+        </h4>
+        <button onClick={() => setIsOpen(false)}><X size={14} className="text-slate-400" /></button>
+      </div>
+      <p className="text-[10px] text-slate-500 mb-2 leading-tight">
+        Use your own Gemini API key for testing. It is saved locally in your browser.
+      </p>
+      <input 
+        type="password" 
+        value={key} 
+        onChange={(e) => setKey(e.target.value)}
+        placeholder="Paste AIza... key here"
+        className="w-full p-3 bg-white border border-slate-200 rounded-xl text-xs font-mono mb-3 focus:outline-none focus:border-emerald-500"
+      />
+      <div className="flex gap-2">
+        <button 
+          onClick={saveKey}
+          className="flex-1 bg-slate-900 text-white py-2 rounded-lg text-xs font-bold uppercase tracking-wide"
+        >
+          {status || 'Save Key'}
+        </button>
+        {localStorage.getItem('EATWISE_USER_API_KEY') && (
+          <button 
+            onClick={clearKey}
+            className="px-4 py-2 bg-red-50 text-red-500 border border-red-100 rounded-lg text-xs font-bold uppercase"
+          >
+            Clear
+          </button>
+        )}
+      </div>
+    </div>
+  );
+};
 
 const Navigation = ({ activeTab, setActiveTab }) => (
   <nav className="fixed bottom-0 w-full bg-white/90 backdrop-blur-md border-t border-slate-200 p-4 pb-6 flex justify-around items-center z-50 md:sticky md:top-0 md:border-b md:border-t-0 md:h-20 md:pb-4">
@@ -183,11 +283,8 @@ const AnalysisView = ({ result, image, onReset, onGenerateRecipe }) => {
 
   // --- Gauge Logic ---
   const confidenceValue = parseInt(result.confidence_level) || 0;
-  // Rotation: 0% = -90deg, 100% = 90deg
   const needleRotation = (confidenceValue / 100) * 180 - 90;
   const gaugeColor = confidenceValue > 80 ? '#10b981' : confidenceValue > 50 ? '#f59e0b' : '#ef4444';
-
-  // Calculate health score visual
   const score = result.healthScore ?? 5;
   const scoreColor = score > 7 ? 'bg-emerald-500' : score > 4 ? 'bg-amber-500' : 'bg-rose-500';
 
@@ -197,7 +294,6 @@ const AnalysisView = ({ result, image, onReset, onGenerateRecipe }) => {
         <img src={image} alt="Food" className="w-full h-full object-cover" />
         <button onClick={onReset} className="absolute top-4 left-4 bg-black/50 text-white p-2 rounded-full backdrop-blur-md"><X size={20} /></button>
         
-        {/* Overlay Info with Gauge */}
         <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-slate-900 via-slate-900/80 to-transparent p-6 pt-24 text-white">
           <div className="flex items-end justify-between gap-2">
             <div>
@@ -206,14 +302,9 @@ const AnalysisView = ({ result, image, onReset, onGenerateRecipe }) => {
               </span>
               <h1 className="text-3xl font-black leading-tight max-w-[200px]">{result.dishName ?? 'Food Items'}</h1>
             </div>
-
-            {/* --- Speedometer Component --- */}
             <div className="flex flex-col items-center mb-1">
               <div className="relative w-20 h-10 overflow-hidden">
-                {/* Background Arc */}
                 <div className="w-20 h-20 rounded-full border-[6px] border-slate-600/50" />
-                
-                {/* Active Colored Progress Arc with Masking */}
                 <div 
                   className="absolute top-0 left-0 w-20 h-20 rounded-full border-[6px] border-transparent transition-all duration-1000 ease-out"
                   style={{
@@ -223,27 +314,21 @@ const AnalysisView = ({ result, image, onReset, onGenerateRecipe }) => {
                     maskComposite: 'exclude',
                   }}
                 />
-
-                {/* Needle */}
                 <div 
                   className="absolute bottom-0 left-1/2 w-0.5 h-9 bg-white origin-bottom transition-transform duration-[1500ms] cubic-bezier(0.34, 1.56, 0.64, 1)"
                   style={{ transform: `translateX(-50%) rotate(${needleRotation}deg)` }}
                 />
-                
-                {/* Center Pivot Point */}
                 <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-1.5 h-1.5 bg-white rounded-full border border-slate-900" />
               </div>
               <span className="text-[9px] font-bold mt-1 uppercase tracking-tighter opacity-90">
                 {confidenceValue}% Confidence
               </span>
             </div>
-            {/* ------------------------- */}
           </div>
         </div>
       </div>
 
       <div className="p-4 -mt-4 bg-white rounded-t-3xl relative z-10 space-y-4 shadow-xl">
-        {/* Health Score Progress Bar */}
         <div className="bg-white border-2 border-slate-100 rounded-2xl p-4 shadow-sm">
           <div className="flex justify-between items-center mb-2">
             <h3 className="font-black text-slate-900 flex items-center gap-2 text-xs uppercase tracking-widest">
@@ -259,7 +344,6 @@ const AnalysisView = ({ result, image, onReset, onGenerateRecipe }) => {
           </div>
         </div>
 
-        {/* Freshness & Risk */}
         <div className="grid grid-cols-2 gap-3">
           <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
              <h4 className="font-black text-slate-400 text-[10px] uppercase mb-1 flex items-center gap-1"><ShieldCheck size={12}/> Freshness</h4>
@@ -271,7 +355,6 @@ const AnalysisView = ({ result, image, onReset, onGenerateRecipe }) => {
           </div>
         </div>
 
-        {/* Co-Pilot Explanation */}
         <div className="bg-white border-2 border-slate-100 rounded-2xl p-4">
           <h3 className="font-black text-slate-900 flex items-center gap-2 mb-2 text-sm uppercase tracking-tight">
             <Sparkles size={18} className="text-amber-500" /> Human Insight
@@ -279,7 +362,6 @@ const AnalysisView = ({ result, image, onReset, onGenerateRecipe }) => {
           <p className="text-sm text-slate-600 leading-relaxed font-medium">{result.explanation ?? 'No insight available for this scan.'}</p>
         </div>
 
-        {/* Visual Translation Box */}
         {result.visual_translation && (
           <div className="bg-emerald-900 text-emerald-50 rounded-2xl p-4 shadow-lg shadow-emerald-100 relative overflow-hidden">
             <div className="absolute top-0 right-0 p-4 opacity-10"><Scale size={64} /></div>
@@ -290,7 +372,6 @@ const AnalysisView = ({ result, image, onReset, onGenerateRecipe }) => {
           </div>
         )}
 
-        {/* Macros */}
         <div className="flex gap-2">
           <MacroBadge label="Cal" value={result.calories} color="text-slate-400" />
           <MacroBadge label="Pro" value={result?.macros?.protein} color="text-emerald-600" />
@@ -298,7 +379,6 @@ const AnalysisView = ({ result, image, onReset, onGenerateRecipe }) => {
           <MacroBadge label="Fat" value={result?.macros?.fats} color="text-emerald-600" />
         </div>
 
-        {/* Risks & Alternatives */}
         <div className="grid grid-cols-1 gap-4">
            {result.health_risks?.length > 0 && (
              <div className="bg-rose-50 p-4 rounded-2xl border border-rose-100">
@@ -428,6 +508,9 @@ const Scanner = ({ onScanComplete }) => {
           }} />
         </button>
       </div>
+
+      {/* --- SETTINGS AREA --- */}
+      <ApiKeyManager />
     </div>
   );
 };
