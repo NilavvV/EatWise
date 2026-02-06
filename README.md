@@ -91,11 +91,34 @@ This project is configured to deploy automatically to GitHub Pages using GitHub 
 
 
 
+here is how the interface looks when opened :
+
+
+
+
+
+
+
+
+
+<img width="454" height="822" alt="home" src="https://github.com/user-attachments/assets/a9bed1eb-b2f4-416d-be50-b770799281c6" />
+
+
+
+
+
+
+
+
+
+
+when an input is give , the following is obtained as an output
+
+
 
 ![WhatsApp Image 2026-02-07 at 00 40 07](https://github.com/user-attachments/assets/5cee4efb-f3fa-444b-b4d4-0c1efe38223c)
 
 
-<img width="454" height="822" alt="home" src="https://github.com/user-attachments/assets/a9bed1eb-b2f4-416d-be50-b770799281c6" />
 
 
 
